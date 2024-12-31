@@ -12,6 +12,8 @@ const io = socketIo(server, {
     methods: ["GET", "POST"],
   },
 });
+
+// Connect to MongoDB
 mongoose.connect("mongodb://127.0.0.1:27017/uno_game");
 
 app.use(express.json());
@@ -22,6 +24,7 @@ app.use("/api/auth", authRoutes);
 
 const lobbies = {}; // Store lobbies in memory for simplicity
 let games = {};
+
 // Create Lobby
 app.post("/api/lobby/create", (req, res) => {
   const { username } = req.body;
@@ -35,7 +38,7 @@ app.post("/api/lobby/join", (req, res) => {
   const { lobbyCode, username } = req.body;
   const lobby = lobbies[lobbyCode];
   if (lobby && lobby.players.length < 4 && !lobby.isStarted) {
-    lobby.players.push(username);
+    lobby.players.push({ name: username });
     res.json({ message: "Joined successfully", players: lobby.players });
   } else {
     res.status(400).json({ error: "Lobby is full or game has started" });
@@ -64,16 +67,11 @@ app.post("/api/lobby/start", (req, res) => {
   }
 });
 
-// io.on("connection", (socket) => {
-//   console.log("A user connected");
-//   socket.on("disconnect", () => {
-//     console.log("A user disconnected");
-//   });
-// });
-
+// Handle socket connections
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
 
+  // Handle joining a game
   socket.on("joinGame", (gameId, playerName) => {
     if (!games[gameId]) {
       games[gameId] = {
@@ -101,6 +99,7 @@ io.on("connection", (socket) => {
     io.to(gameId).emit("playerListUpdate", game.players);
   });
 
+  // Handle playing a card
   socket.on("playCard", (gameId, cardIndex) => {
     const game = games[gameId];
     const player = game.players[game.currentTurn];
@@ -121,6 +120,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Handle drawing a card
   socket.on("drawCard", (gameId) => {
     const game = games[gameId];
     const player = game.players[game.currentTurn];
@@ -135,11 +135,13 @@ io.on("connection", (socket) => {
     io.to(gameId).emit("gameState", game);
   });
 
+  // Handle disconnection
   socket.on("disconnect", () => {
     console.log("A user disconnected:", socket.id);
   });
 });
 
+// Function to generate a deck of cards
 function generateDeck() {
   const colors = ["Red", "Yellow", "Green", "Blue"];
   const numbers = Array.from({ length: 10 }, (_, i) => i);
@@ -154,33 +156,29 @@ function generateDeck() {
   return deck.sort(() => Math.random() - 0.5);
 }
 
+// Function to deal hands to players
 function dealHands(players, deck) {
   for (let i = 0; i < 7; i++) {
-    const card = deck.pop();
-    if (card) {
-      players.forEach((player) =>
-        player.hand === undefined
-          ? (player.hand = [deck.pop()])
-          : player.hand.push(deck.pop())
-      );
-    } else {
-      console.error("Deck ran out of cards unexpectedly.");
-      break;
-    }
+    players.forEach((player) => {
+      player.hand.push(deck.pop());
+    });
   }
   return deck;
 }
 
+// Function to check if a card can be played
 function canPlayCard(card, topCard) {
   const [topColor, topNumber] = topCard.split(" ");
   const [cardColor, cardNumber] = card.split(" ");
   return topColor === cardColor || topNumber === cardNumber;
 }
 
+// Function to move to the next turn
 function nextTurn(game) {
   game.currentTurn = (game.currentTurn + 1) % game.players.length;
 }
 
+// Start the server
 server.listen(3000, () => {
   console.log("Server is running on http://localhost:3000");
 });
